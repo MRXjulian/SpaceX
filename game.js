@@ -1,14 +1,21 @@
 export class Game extends Phaser.Scene {
-
     constructor() {
         super({ key: 'game' });
     }
 
+    // Declaración de variables
+    proyectiles;
+    fireRate = 300; // Milisegundos entre disparos (0.3 segundos)
+    nextFire = 0;
+    projectileLife = 800; // Vida del proyectil en milisegundos (2 segundos)
+
+
     preload() {
+        // Carga las imágenes para el juego
         this.load.image('background', 'imgs/background.webp');
         this.load.image('gameover', 'imgs/gameover.png');
         this.load.image('nave', 'imgs/nave.png');
-        this.load.image('proyectil', 'imgs/bala.png'); 
+        this.load.image('proyectil', 'imgs/bala.png');
         this.load.image('techo', 'imgs/techo.png');
         this.load.image('asteroide', 'imgs/asteroide.png');
     }
@@ -23,12 +30,25 @@ export class Game extends Phaser.Scene {
             .setScale(0.1)
             .setCollideWorldBounds(true);
 
+        // Crear el grupo de proyectiles (con físicas)
+        this.proyectiles = this.physics.add.group({
+            classType: Phaser.Physics.Arcade.Image,
+            defaultKey: 'proyectil',
+            maxSize: 10,
+            // Configuración para que las balas no sean afectadas por la gravedad
+            createCallback: (proyectil) => {
+                proyectil.setGravityY(0);
+                proyectil.setCollideWorldBounds(true);
+                proyectil.setBounce(0);
+            }
+        });
+
         // Crear el grupo de asteroides
         this.asteroides = this.physics.add.group({
             classType: Phaser.Physics.Arcade.Image,
             defaultKey: 'asteroide',
             maxSize: 20,
-            runChildUpdate: true // Hacer que los asteroides actualicen su estado
+            runChildUpdate: true
         });
 
         // Crear el techo
@@ -48,16 +68,45 @@ export class Game extends Phaser.Scene {
 
         // Colisiones
         this.physics.add.collider(this.nave, this.asteroides, this.colisionNaveAsteroide, null, this);
+        this.physics.add.collider(this.proyectiles, this.asteroides, this.colisionProyectilAsteroide, null, this);
 
         // Inicializar puntuación
         this.score = 0;
         this.scoreText = this.add.text(16, 450, 'Score: ' + this.score, { fontSize: '32px', fill: '#ffffff' });
     }
 
+    dispararProyectil() {
+        const now = this.time.now;
+
+        if (now > this.nextFire) {
+            this.nextFire = now + this.fireRate;
+
+            // Obtén un proyectil del grupo
+            const proyectil = this.proyectiles.get();
+
+            // Si hay proyectiles disponibles
+            if (proyectil) {
+                proyectil.setActive(true);
+                proyectil.setVisible(true);
+                proyectil.setPosition(this.nave.x, this.nave.y);
+
+                // Escalar el proyectil
+                proyectil.setScale(0.03);
+                proyectil.setAngle(-90);
+
+                // Configura la dirección y velocidad del proyectil
+                proyectil.setVelocityY(-800); // Velocidad hacia arriba
+                this.time.delayedCall(this.projectileLife, () => {
+                    proyectil.setActive(false).setVisible(false);
+                });
+            }
+        }
+    }
+
     crearAsteroide() {
         // Crear un nuevo asteroide
         let asteroide = this.asteroides.get(Phaser.Math.Between(50, 750), -50, 'asteroide');
-        
+
         if (asteroide) {
             asteroide.setScale(0.07)
                 .setActive(true)
@@ -66,30 +115,30 @@ export class Game extends Phaser.Scene {
         }
     }
 
-    dispararProyectil() {
-        if (!this.proyectil.visible) { // Solo dispara si el proyectil no está visible
-            // Sincronizar la posición del proyectil con la de la nave
-            this.proyectil.setPosition(this.nave.x, this.nave.y)
-                .setVisible(true)
-                .setActive(true);
-        }
-    } 
-
-    reiniciarJuego() {
-        this.scene.restart(); // Reinicia la escena actual
-    }
-
     colisionNaveAsteroide(nave, asteroide) {
         nave.setVisible(false);
         asteroide.setActive(false).setVisible(false);
-        
+
         this.gameoverImage.setVisible(true);
         this.physics.pause(); // Pausar la física del juego
-    
+
         // Escuchar el evento para reiniciar el juego
         this.input.keyboard.once('keydown-Q', () => {
             this.reiniciarJuego(); // Llamar al método de reinicio
         });
+    }
+
+    colisionProyectilAsteroide(proyectil, asteroide) {
+        proyectil.setActive(false).setVisible(false);
+        asteroide.setActive(false).setVisible(false);
+
+        // Aumentar el puntaje
+        this.score += 10;
+        this.scoreText.setText('Score: ' + this.score);
+    }
+
+    reiniciarJuego() {
+        this.scene.restart(); // Reinicia la escena actual
     }
 
     update() {
@@ -104,11 +153,22 @@ export class Game extends Phaser.Scene {
             this.nave.setVelocityX(0);
         }
 
+        if (this.cursors.space.isDown) {
+            this.dispararProyectil();
+        }
+
+        // Desactivar proyectiles que salgan de la pantalla
+        this.proyectiles.children.iterate(proyectil => {
+            if (this.proyectiles.y > this.sys.game.config.height) {
+                proyectil.setActive(false).setVisible(false);
+            }
+        });
+
         // Desactivar asteroides fuera de la pantalla y actualizar puntuación
         this.asteroides.children.iterate(asteroide => {
             if (asteroide.y > this.sys.game.config.height) {
                 asteroide.setActive(false).setVisible(false);
-                
+
                 // Aumentar el puntaje
                 this.score += 1;
                 this.scoreText.setText('Score: ' + this.score);
